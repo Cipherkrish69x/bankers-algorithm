@@ -1,0 +1,170 @@
+#include <stdio.h> 
+#include <stdlib.h> 
+#include <unistd.h> 
+#include <pthread.h> 
+#include <stdbool.h> 
+#include <Ɵme.h>
+int num_Resources, 
+ num_Processes; 
+int *resources; 
+int **allocated; 
+int **maxRequired; 
+int **need; 
+int *safeSeq; 
+int num_ProcessRan = 0; 
+pthread_mutex_t lockResources; 
+pthread_cond_t condiƟon;
+// get safe sequence is there is one else return false 
+bool getSafeSeq(); 
+// process funcƟon
+void* processCode(void* ); 
+int main(int argc, char** argv) { 
+ srand(Ɵme(NULL));
+ prinƞ("\nNumber of processes? "); 
+ scanf("%d", &num_Processes); 
+ prinƞ("\nNumber of resources? "); 
+ scanf("%d", &num_Resources); 
+ resources = (int *)malloc(num_Resources * sizeof(*resources)); 
+ prinƞ("\nCurrently Available resources (R1 R2 ...)? "); 
+ for(int i=0; i<num_Resources; i++) 
+ scanf("%d", &resources[i]); 
+ allocated = (int **)malloc(num_Processes * sizeof(*allocated)); 
+ for(int i=0; i<num_Processes; i++) 
+ allocated[i] = (int *)malloc(num_Resources * sizeof(**allocated)); 
+ maxRequired = (int **)malloc(num_Processes * sizeof(*maxRequired)); 
+ for(int i=0; i<num_Processes; i++) 
+ maxRequired[i] = (int *)malloc(num_Resources * sizeof(**maxRequired)); 
+ // allocated 
+ prinƞ("\n"); 
+ for(int i=0; i<num_Processes; i++) { 
+ prinƞ("\nResource allocated to process %d (R1 R2 ...)? ", i+1); 
+ for(int j=0; j<num_Resources; j++) 
+ scanf("%d", &allocated[i][j]); 
+ } 
+ prinƞ("\n"); 
+ // maximum required resources 
+ for(int i=0; i<num_Processes; i++) { 
+ prinƞ("\nMaximum resource required by process %d (R1 R2 ...)? ", i+1); 
+ for(int j=0; j<num_Resources; j++) 
+ scanf("%d", &maxRequired[i][j]); 
+ } 
+ prinƞ("\n"); 
+ // calculate need matrix 
+ need = (int **)malloc(num_Processes * sizeof(*need)); 
+ for(int i=0; i<num_Processes; i++) 
+ need[i] = (int *)malloc(num_Resources * sizeof(**need)); 
+ for(int i=0; i<num_Processes; i++) 
+ for(int j=0; j<num_Resources; j++) 
+ need[i][j] = maxRequired[i][j] - allocated[i][j]; 
+ // get safe sequence 
+ safeSeq = (int *)malloc(num_Processes * sizeof(*safeSeq)); 
+ for(int i=0; i<num_Processes; i++) safeSeq[i] = -1; 
+ if(!getSafeSeq()) { 
+ prinƞ("\nUnsafe State! The processes leads the system to a unsafe state.\n\n"); 
+ exit(-1); 
+ } 
+ prinƞ("\n\nSafe Sequence Found : "); 
+ for(int i=0; i<num_Processes; i++) { 
+ prinƞ("%-3d", safeSeq[i]+1); 
+ } 
+ prinƞ("\nExecuƟng Processes...\n\n"); 
+ sleep(1); 
+ // run threads 
+ pthread_t processes[num_Processes]; 
+ pthread_aƩr_t aƩr;
+ pthread_aƩr_init(&aƩr);
+ int processNumber[num_Processes]; 
+ for(int i=0; i<num_Processes; i++) processNumber[i] = i; 
+ for(int i=0; i<num_Processes; i++) 
+ pthread_create(&processes[i], &aƩr, processCode, (void *)(&processNumber[i]));
+ for(int i=0; i<num_Processes; i++) 
+ pthread_join(processes[i], NULL); 
+ prinƞ("\nAll Processes Finished\n"); 
+ // free resources 
+ free(resources); 
+ for(int i=0; i<num_Processes; i++) { 
+ free(allocated[i]); 
+ free(maxRequired[i]); 
+ free(need[i]); 
+ } 
+ free(allocated); 
+ free(maxRequired); 
+ free(need); 
+ free(safeSeq); 
+} 
+bool getSafeSeq() { 
+ // get safe sequence 
+ int tempRes[num_Resources]; 
+ for(int i=0; i<num_Resources; i++) tempRes[i] = resources[i]; 
+ bool finished[num_Processes]; 
+ for(int i=0; i<num_Processes; i++) finished[i] = false; 
+ int nfinished=0; 
+ while(nfinished < num_Processes) { 
+ bool safe = false; 
+ for(int i=0; i<num_Processes; i++) { 
+ if(!finished[i]) { 
+ bool possible = true; 
+ for(int j=0; j<num_Resources; j++) 
+ if(need[i][j] > tempRes[j]) { 
+ possible = false; 
+ break; 
+ } 
+ if(possible) { 
+ for(int j=0; j<num_Resources; j++) 
+ tempRes[j] += allocated[i][j]; 
+ safeSeq[nfinished] = i; 
+ finished[i] = true; 
+ ++nfinished; 
+ safe = true; 
+ } 
+ } 
+ } 
+ if(!safe) { 
+ for(int k=0; k<num_Processes; k++) safeSeq[k] = -1; 
+ return false; // no safe sequence found 
+ } 
+ } 
+ return true; // safe sequence found 
+} 
+// process code 
+void* processCode(void *arg) { 
+ int p = *((int *) arg); 
+ // lock resources 
+ pthread_mutex_lock(&lockResources); 
+ // condiƟon check
+ while(p != safeSeq[num_ProcessRan]) 
+ pthread_cond_wait(&condiƟon, &lockResources);
+ // process 
+ prinƞ("\n--> Process %d", p+1); 
+ prinƞ("\n\tAllocated : "); 
+ for(int i=0; i<num_Resources; i++) 
+ prinƞ("%3d", allocated[p][i]);
+ prinƞ("\n\tNeeded : "); 
+ for(int i=0; i<num_Resources; i++) 
+ prinƞ("%3d", need[p][i]);
+ prinƞ("\n\tAvailable : "); 
+ for(int i=0; i<num_Resources; i++) 
+ prinƞ("%3d", resources[i]);
+ prinƞ("\n"); sleep(1); 
+ prinƞ("\tResource Allocated!"); 
+ prinƞ("\n"); sleep(1); 
+ prinƞ("\tProcess Code Running..."); 
+ prinƞ("\n"); sleep(rand()%3 + 2); // process code 
+ prinƞ("\tProcess Code Completed..."); 
+ prinƞ("\n"); sleep(1); 
+ prinƞ("\tProcess Releasing Resource..."); 
+ prinƞ("\n"); sleep(1); 
+ prinƞ("\tResource Released!"); 
+ for(int i=0; i<num_Resources; i++) 
+ resources[i] += allocated[p][i]; 
+ prinƞ("\n\tNow Available : "); 
+ for(int i=0; i<num_Resources; i++) 
+ prinƞ("%3d", resources[i]);
+ prinƞ("\n\n"); 
+ sleep(1); 
+ // condiƟon broadcast
+ num_ProcessRan++; 
+ pthread_cond_broadcast(&condiƟon);
+ pthread_mutex_unlock(&lockResources); 
+ pthread_exit(NULL); 
+} 
